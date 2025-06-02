@@ -1,4 +1,4 @@
-# Jméno Příjmení
+# Jiří Prášek
 ---
 ## Zvolené rozšíření
 - Popisek
