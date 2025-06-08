@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <title>Katalog filmů a hodnocení</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2em; }
+    h2 { margin-top: 2em; }
+    form { margin-bottom: 1em; }
+    label { display: block; margin-top: 0.5em; }
+    input, select { margin-bottom: 0.5em; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 2em; }
+    th, td { border: 1px solid #ccc; padding: 0.5em; }
+    button { margin-right: 0.5em; }
+  </style>
+</head>
+<body>
+  <h1>Katalog filmů</h1>
+
+  <div id="error" style="color:red;"></div>
+
+  <h2>Přidat nový film</h2>
+  <form id="add-movie-form">
+    <label>Název: <input type="text" id="movie-title" required></label>
+    <label>Rok: <input type="number" id="movie-year" required></label>
+    <button type="submit">Přidat film</button>
+  </form>
+
+  <h2>Filmy</h2>
+  <table id="movies-table">
+    <thead>
+      <tr>
+        <th>ID</th><th>Název</th><th>Rok</th><th>Akce</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>Hodnocení filmů</h2>
+  <form id="add-rating-form">
+    <label>Uživatel: <input type="text" id="rating-username" required></label>
+    <label>Hodnocení (1-5): <input type="number" id="rating-value" min="1" max="5" required></label>
+    <button type="submit">Přidat hodnocení</button>
+  </form>
+  <table id="ratings-table">
+    <thead>
+      <tr>
+        <th>ID</th><th>Uživatel</th><th>Hodnocení</th><th>Akce</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    // Helper: fetch wrapper with error display
+    async function api(url, options = {}) {
+      document.getElementById('error').textContent = '';
+      try {
+        const res = await fetch(url, options);
+        if (!res.ok) {
+          let msg = await res.text();
+          let status = res.status;
+          try { msg = JSON.parse(msg).error; } catch {}
+          // Speciální zachycení 404 na /api/movies
+          if (status === 404 && url.includes('/api/movies')) {
+            document.getElementById('error').textContent = 'Backend API /api/movies není dostupné. Zkontrolujte, že server běží a endpoint existuje.';
+            throw new Error('API endpoint /api/movies nenalezen.');
+          }
+          throw new Error(msg);
+        }
+        return res.json();
+      } catch (e) {
+        if (!document.getElementById('error').textContent)
+          document.getElementById('error').textContent = e.message;
+        throw e;
+      }
+    }
+
+    // Movies CRUD
+    async function loadMovies() {
+      try {
+        // Získání všech filmů z backendu (tabulka movies)
+        const movies = await api('/api/movies');
+        const tbody = document.querySelector('#movies-table tbody');
+        tbody.innerHTML = '';
+        movies.forEach(movie => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${movie.id}</td>
+            <td><span class="movie-title">${movie.title}</span></td>
+            <td><span class="movie-year">${movie.year}</span></td>
+            <td>
+              <button onclick="editMovie(${movie.id}, '${movie.title.replace(/'/g, "\\'")}', ${movie.year})">Upravit</button>
+              <button onclick="deleteMovie(${movie.id})">Smazat</button>
+              <button onclick="showMovieDetail(${movie.id})">Detail</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch {}
+    }
+
+    async function addMovie(e) {
+      e.preventDefault();
+      const title = document.getElementById('movie-title').value;
+      const year = Number(document.getElementById('movie-year').value);
+      if (!title || !year) {
+        document.getElementById('error').textContent = 'Vyplňte název i rok!';
+        return;
+      }
+      try {
+        // Přidání nového filmu do tabulky movies přes backend
+        await api('/api/movies', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ title, year })
+        });
+        e.target.reset();
+        loadMovies();
+      } catch {}
+    }
+
+    async function deleteMovie(id) {
+      if (!confirm('Opravdu smazat film?')) return;
+      try {
+        // Smazání filmu z tabulky movies přes backend
+        await api(`/api/movies/${id}`, { method: 'DELETE' });
+        loadMovies();
+      } catch {}
+    }
+
+    function editMovie(id, title, year) {
+      const newTitle = prompt('Nový název:', title);
+      if (newTitle === null) return;
+      const newYear = prompt('Nový rok:', year);
+      if (newYear === null) return;
+      // Úprava filmu v tabulce movies přes backend
+      api(`/api/movies/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ title: newTitle, year: Number(newYear) })
+      }).then(loadMovies).catch(()=>{});
+    }
+
+    async function showMovieDetail(id) {
+      try {
+        // Získání detailu filmu z tabulky movies přes backend
+        const movie = await api(`/api/movies/${id}`);
+        alert(`Název: ${movie.title}\nRok: ${movie.year}`);
+      } catch {}
+    }
+
+    // Ratings CRUD
+    async function loadRatings() {
+      try {
+        // Získání všech hodnocení z tabulky ratings
+        const ratings = await api('/api/ratings');
+        const tbody = document.querySelector('#ratings-table tbody');
+        tbody.innerHTML = '';
+        ratings.forEach(rating => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${rating.id}</td>
+            <td><span class="rating-username">${rating.username}</span></td>
+            <td><span class="rating-value">${rating.rating}</span></td>
+            <td>
+              <button onclick="editRating(${rating.id}, '${rating.username.replace(/'/g, "\\'")}', ${rating.rating})">Upravit</button>
+              <button onclick="deleteRating(${rating.id})">Smazat</button>
+              <button onclick="showRatingDetail(${rating.id})">Detail</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch {}
+    }
+
+    async function addRating(e) {
+      e.preventDefault();
+      const username = document.getElementById('rating-username').value;
+      const rating = Number(document.getElementById('rating-value').value);
+      if (!username || !rating) {
+        document.getElementById('error').textContent = 'Vyplňte uživatele i hodnocení!';
+        return;
+      }
+      try {
+        // Přidání nového hodnocení do tabulky ratings přes backend
+        await api('/api/ratings', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ username, rating })
+        });
+        e.target.reset();
+        loadRatings();
+      } catch {}
+    }
+
+    async function deleteRating(id) {
+      if (!confirm('Opravdu smazat hodnocení?')) return;
+      try {
+        // Smazání hodnocení z tabulky ratings přes backend
+        await api(`/api/ratings/${id}`, { method: 'DELETE' });
+        loadRatings();
+      } catch {}
+    }
+
+    function editRating(id, username, rating) {
+      const newUsername = prompt('Nové jméno:', username);
+      if (newUsername === null) return;
+      const newRating = prompt('Nové hodnocení (1-5):', rating);
+      if (newRating === null) return;
+      // Úprava hodnocení v tabulce ratings přes backend
+      api(`/api/ratings/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ username: newUsername, rating: Number(newRating) })
+      }).then(loadRatings).catch(()=>{});
+    }
+
+    async function showRatingDetail(id) {
+      try {
+        // Získání detailu hodnocení z tabulky ratings přes backend
+        const rating = await api(`/api/ratings/${id}`);
+        alert(`Uživatel: ${rating.username}\nHodnocení: ${rating.rating}`);
+      } catch {}
+    }
+
+    // Init
+    document.getElementById('add-movie-form').addEventListener('submit', addMovie);
+    document.getElementById('add-rating-form').addEventListener('submit', addRating);
+
+    window.editMovie = editMovie;
+    window.deleteMovie = deleteMovie;
+    window.showMovieDetail = showMovieDetail;
+    window.editRating = editRating;
+    window.deleteRating = deleteRating;
+    window.showRatingDetail = showRatingDetail;
+
+    loadMovies();
+    loadRatings();
+  </script>
+</body>
+</html>
